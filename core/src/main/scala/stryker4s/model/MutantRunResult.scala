@@ -5,7 +5,7 @@ import java.nio.file.Path
 /** The base result type of a mutant run.
   * Extends Product with Serializable to clean up the type signature, as all subtypes are case classes
   */
-sealed trait MutantRunResult extends Product with Serializable {
+sealed trait MutantRunResult {
   def mutant: Mutant
   def fileSubPath: Path
 }

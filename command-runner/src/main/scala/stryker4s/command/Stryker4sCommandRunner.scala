@@ -8,11 +8,13 @@ import stryker4s.mutants.applymutants.ActiveMutationContext.ActiveMutationContex
 import stryker4s.mutants.findmutants.SourceCollector
 import stryker4s.report.Reporter
 import stryker4s.run.process.ProcessRunner
-import stryker4s.run.{MutantRunner, Stryker4sRunner}
+import stryker4s.run.{Stryker4sRunner}
 
 class Stryker4sCommandRunner(processRunnerConfig: ProcessRunnerConfig) extends Stryker4sRunner {
   override val mutationActivation: ActiveMutationContext = ActiveMutationContext.envVar
 
-  override def resolveRunner(collector: SourceCollector, reporter: Reporter)(implicit config: Config): MutantRunner =
-    new ProcessMutantRunner(processRunnerConfig.testRunner, ProcessRunner(), collector, reporter)
+  override def resolveRunner[T](collector: SourceCollector, reporter: Reporter)(implicit
+      config: Config
+  ): ProcessMutantRunner = new ProcessMutantRunner(processRunnerConfig.testRunner, ProcessRunner(), collector, reporter)
+
 }

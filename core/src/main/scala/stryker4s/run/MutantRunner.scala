@@ -1,7 +1,5 @@
 package stryker4s.run
 
-import java.nio.file.Path
-
 import better.files.File
 import grizzled.slf4j.Logging
 import mutationtesting.{Metrics, MetricsResult}
@@ -12,24 +10,20 @@ import stryker4s.mutants.findmutants.SourceCollector
 import stryker4s.report.Reporter
 import stryker4s.report.mapper.MutantRunResultMapper
 import stryker4s.report.FinishedRunReport
+import stryker4s.extension.exception.InitialTestRunFailedException
+import java.nio.file.Path
 
-abstract class MutantRunner(sourceCollector: SourceCollector, reporter: Reporter)(implicit config: Config)
-    extends InitialTestRun
-    with MutantRunResultMapper
+abstract class MutantRunner[Context <: TestRunnerContext](sourceCollector: SourceCollector, reporter: Reporter)(implicit
+    config: Config
+) extends MutantRunResultMapper
     with Logging {
-  val tmpDir: File = {
-    val targetFolder = config.baseDir / "target"
-    targetFolder.createDirectoryIfNotExists()
-
-    File.newTemporaryDirectory("stryker4s-", Some(targetFolder))
-  }
 
   def apply(mutatedFiles: Iterable[MutatedFile]): MetricsResult = {
-    prepareEnv(mutatedFiles)
+    val context = prepareEnv(mutatedFiles)
 
-    initialTestRun(tmpDir)
+    initialTestRun(context)
 
-    val runResults = runMutants(mutatedFiles)
+    val runResults = runMutants(mutatedFiles, context)
 
     val report = toReport(runResults)
     val metrics = Metrics.calculateMetrics(report)
@@ -38,18 +32,25 @@ abstract class MutantRunner(sourceCollector: SourceCollector, reporter: Reporter
     metrics
   }
 
-  private def prepareEnv(mutatedFiles: Iterable[MutatedFile]): Unit = {
+  private def prepareEnv(mutatedFiles: Iterable[MutatedFile]): Context = {
     val files = sourceCollector.filesToCopy
+    val tmpDir: File = {
+      val targetFolder = config.baseDir / "target"
+      targetFolder.createDirectoryIfNotExists()
+
+      File.newTemporaryDirectory("stryker4s-", Some(targetFolder))
+    }
 
     debug("Using temp directory: " + tmpDir)
 
-    files.foreach(copyFile)
+    files.foreach(copyFile(_, tmpDir))
 
     // Overwrite files to mutated files
-    mutatedFiles.foreach(writeMutatedFile)
+    mutatedFiles.foreach(writeMutatedFile(_, tmpDir))
+    initializeTestContext(tmpDir)
   }
 
-  private def copyFile(file: File): Unit = {
+  private def copyFile(file: File, tmpDir: File): Unit = {
     val filePath = tmpDir / file.relativePath.toString
 
     filePath.createIfNotExists(file.isDirectory, createParents = true)
@@ -57,12 +58,12 @@ abstract class MutantRunner(sourceCollector: SourceCollector, reporter: Reporter
     val _ = file.copyTo(filePath, overwrite = true)
   }
 
-  private def writeMutatedFile(mutatedFile: MutatedFile): File = {
+  private def writeMutatedFile(mutatedFile: MutatedFile, tmpDir: File): File = {
     val filePath = mutatedFile.fileOrigin.inSubDir(tmpDir)
     filePath.overwrite(mutatedFile.tree.syntax)
   }
 
-  private def runMutants(mutatedFiles: Iterable[MutatedFile]): Iterable[MutantRunResult] =
+  private def runMutants(mutatedFiles: Iterable[MutatedFile], context: Context): Iterable[MutantRunResult] =
     for {
       mutatedFile <- mutatedFiles
       subPath = mutatedFile.fileOrigin.relativePath
@@ -70,10 +71,24 @@ abstract class MutantRunner(sourceCollector: SourceCollector, reporter: Reporter
     } yield {
       val totalMutants = mutatedFiles.flatMap(_.mutants).size
       reporter.reportMutationStart(mutant)
-      val result = runMutant(mutant, tmpDir)(subPath)
+      val result = runMutant(mutant, context)(subPath)
       reporter.reportMutationComplete(result, totalMutants)
       result
     }
 
-  def runMutant(mutant: Mutant, workingDir: File): Path => MutantRunResult
+  def runMutant(mutant: Mutant, context: Context): Path => MutantRunResult
+
+  def initialTestRun(context: Context): Unit = {
+    info("Starting initial test run...")
+    if (!runInitialTest(context)) {
+      throw InitialTestRunFailedException(
+        "Initial test run failed. Please make sure your tests pass before running Stryker4s."
+      )
+    }
+    info("Initial test run succeeded! Testing mutants...")
+  }
+
+  def runInitialTest(context: Context): Boolean
+
+  def initializeTestContext(workingDir: File): Context
 }

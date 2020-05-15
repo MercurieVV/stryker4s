@@ -12,6 +12,7 @@ import stryker4s.run.process.{Command, ProcessRunner}
 
 import scala.concurrent.TimeoutException
 import scala.util.{Failure, Success}
+import stryker4s.run.TestRunnerContext
 
 class ProcessMutantRunner(
     command: Command,
@@ -19,10 +20,10 @@ class ProcessMutantRunner(
     sourceCollector: SourceCollector,
     reporter: Reporter
 )(implicit config: Config)
-    extends MutantRunner(sourceCollector, reporter) {
-  def runMutant(mutant: Mutant, workingDir: File): Path => MutantRunResult = {
+    extends MutantRunner[CommandRunnerTestContext](sourceCollector, reporter) {
+  override def runMutant(mutant: Mutant, context: CommandRunnerTestContext): Path => MutantRunResult = {
     val id = mutant.id
-    processRunner(command, workingDir, ("ACTIVE_MUTATION", id.toString)) match {
+    processRunner(command, context.workingDir, ("ACTIVE_MUTATION", id.toString)) match {
       case Success(0)                         => Survived(mutant, _)
       case Success(exitCode) if exitCode != 0 => Killed(mutant, _)
       case Failure(_: TimeoutException)       => TimedOut(mutant, _)
@@ -30,11 +31,15 @@ class ProcessMutantRunner(
     }
   }
 
-  override def runInitialTest(workingDir: File): Boolean = {
-    processRunner(command, workingDir, ("ACTIVE_MUTATION", "None")) match {
+  override def runInitialTest(context: CommandRunnerTestContext): Boolean = {
+    processRunner(command, context.workingDir, ("ACTIVE_MUTATION", "None")) match {
       case Success(0)                         => true
       case Success(exitCode) if exitCode != 0 => false
       case Failure(_: TimeoutException)       => false
     }
   }
+
+  override def initializeTestContext(workingDir: File): CommandRunnerTestContext = CommandRunnerTestContext(workingDir)
 }
+
+final case class CommandRunnerTestContext(workingDir: File) extends TestRunnerContext

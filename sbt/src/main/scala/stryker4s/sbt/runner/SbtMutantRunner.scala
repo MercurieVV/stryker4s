@@ -1,7 +1,6 @@
 package stryker4s.sbt.runner
 
 import java.io.{PrintStream, File => JFile}
-import java.nio.file.Path
 
 import better.files.{File, _}
 import sbt.Keys._
@@ -9,17 +8,17 @@ import sbt._
 import sbt.internal.LogManager
 import stryker4s.config.Config
 import stryker4s.extension.FileExtensions._
-import stryker4s.extension.exception.InitialTestRunFailedException
 import stryker4s.model._
 import stryker4s.mutants.findmutants.SourceCollector
 import stryker4s.report.Reporter
 import stryker4s.run.MutantRunner
 import stryker4s.sbt.Stryker4sMain.autoImport.stryker
-import sbt.Tests.Output
+import stryker4s.run.TestRunnerContext
 
 class SbtMutantRunner(state: State, sourceCollector: SourceCollector, reporter: Reporter)(implicit config: Config)
-    extends MutantRunner(sourceCollector, reporter) {
-  private lazy val filteredSystemProperties: Option[List[String]] = {
+    extends MutantRunner[SbtTestRunnerContext](sourceCollector, reporter) {
+
+  lazy val filteredSystemProperties: Option[List[String]] = {
     // Matches strings that start with one of the options between brackets
     val regex = "^(java|sun|file|user|jna|os|sbt|jline|awt|graal).*"
 
@@ -37,7 +36,7 @@ class SbtMutantRunner(state: State, sourceCollector: SourceCollector, reporter: 
   /** Remove scalacOptions that are very likely to cause errors with generated code
     * https://github.com/stryker-mutator/stryker4s/issues/321
     */
-  private val blacklistedScalacOptions = Seq(
+  val blacklistedScalacOptions = Seq(
     // Scala 2.12
     "-Ywarn-unused:patvars",
     "-Ywarn-unused:locals",
@@ -46,62 +45,80 @@ class SbtMutantRunner(state: State, sourceCollector: SourceCollector, reporter: 
     "-Wunused:locals"
   )
 
-  private lazy val emptyLogManager =
+  lazy val emptyLogManager =
     LogManager.defaultManager(ConsoleOut.printStreamOut(new PrintStream((_: Int) => {})))
 
-  private val settings: Seq[Def.Setting[_]] = Seq(
-    scalacOptions --= blacklistedScalacOptions,
-    fork in Test := true,
-    scalaSource in Compile := tmpDirFor(Compile).value,
-    logManager := {
-      if ((logLevel in stryker).value == Level.Debug) logManager.value
-      else emptyLogManager
+  val extracted = Project.extract(state)
+
+  def initializeTestContext(workingDir: File): SbtTestRunnerContext = {
+    val newState = extracted.appendWithSession(settings, state)
+    val settings: Seq[Def.Setting[_]] = Seq(
+      scalacOptions --= blacklistedScalacOptions,
+      fork in Test := true,
+      scalaSource in Compile := tmpDirFor(Compile, workingDir).value,
+      logManager := {
+        if ((logLevel in stryker).value == Level.Debug) logManager.value
+        else emptyLogManager
+      }
+    ) ++
+      filteredSystemProperties.map(properties => {
+        debug(s"System properties added to the forked JVM: ${properties.mkString(",")}")
+        javaOptions in Test ++= properties
+      })
+    val testGroups = Project
+      .runTask(testGrouping, newState)
+      .map({
+        case (_, Value(groups)) => groups
+      })
+      .getOrElse(throw new Exception("Could not resolve test context"))
+    val processHandler = new ProcessHandler()
+
+    SbtTestRunnerContext(testGroups, processHandler, workingDir)
+  }
+
+  override def runInitialTest(context: SbtTestRunnerContext): Boolean =
+    context.processHandler.runTests(None) match {
+      case _: Survived => true
+      case _           => false
     }
-  ) ++
-    filteredSystemProperties.map(properties => {
-      debug(s"System properties added to the forked JVM: ${properties.mkString(",")}")
-      javaOptions in Test ++= properties
-    })
+  // runTests(
+  //   newState,
+  //   throw InitialTestRunFailedException(
+  //     s"Unable to execute initial test run. Sbt is unable to find the task 'test'."
+  //   ),
+  //   onSuccess = true,
+  //   onFailed = false
+  // )
 
-  private val extracted = Project.extract(state)
+  override def runMutant(mutant: Mutant, context: SbtTestRunnerContext): MutantRunResult = {
+    context.processHandler.runTests(Some(mutant.id))
 
-  private val newState = extracted.appendWithSession(settings, state)
-
-  override def runInitialTest(workingDir: File): Boolean =
-    runTests(
-      newState,
-      throw InitialTestRunFailedException(
-        s"Unable to execute initial test run. Sbt is unable to find the task 'test'."
-      ),
-      onSuccess = true,
-      onFailed = false
-    )
-
-  override def runMutant(mutant: Mutant, workingDir: File): Path => MutantRunResult = {
-    val mutationState = extracted.appendWithSession(settings :+ mutationSetting(mutant.id), newState)
-    runTests(
-      mutationState,
-      { p: Path =>
-        error(s"An unexpected error occurred while running mutation ${mutant.id}")
-        Error(mutant, p)
-      },
-      Survived(mutant, _),
-      Killed(mutant, _)
-    )
+    // val mutationState = extracted.appendWithSession(settings :+ mutationSetting(mutant.id), newState)
+    // runTests(
+    //   mutationState,
+    //   { p: Path =>
+    //     error(s"An unexpected error occurred while running mutation ${mutant.id}")
+    //     Error(mutant, p)
+    //   },
+    //   Survived(mutant, _),
+    //   Killed(mutant, _)
+    // )
   }
 
   /** Runs tests with the giving state, calls the corresponding parameter on each result
     */
-  private def runTests[T](state: State, onError: => T, onSuccess: => T, onFailed: => T): T =
-    Project.runTask(executeTests in Test, state) match {
-      case Some((_, Value(Output(TestResult.Passed, _, _)))) => onSuccess
-      case Some((_, Value(Output(TestResult.Failed, _, _)))) => onFailed
-      case _                                                 => onError
-    }
+  // private def runTests[T](state: State, onError: => T, onSuccess: => T, onFailed: => T): T =
+  //   Project.runTask(executeTests in Test, state) match {
+  //     case Some((_, Value(Output(TestResult.Passed, _, _)))) => onSuccess
+  //     case Some((_, Value(Output(TestResult.Failed, _, _)))) => onFailed
+  //     case _                                                 => onError
+  //   }
 
-  private def mutationSetting(mutation: Int): Def.Setting[_] =
-    javaOptions in Test += s"-DACTIVE_MUTATION=${String.valueOf(mutation)}"
+  // private def mutationSetting(mutation: Int): Def.Setting[_] =
+  //   javaOptions in Test += s"-DACTIVE_MUTATION=${String.valueOf(mutation)}"
 
-  private def tmpDirFor(conf: Configuration): Def.Initialize[JFile] =
+  private def tmpDirFor(conf: Configuration, tmpDir: File): Def.Initialize[JFile] =
     (scalaSource in conf)(_.toScala)(source => (source inSubDir tmpDir).toJava)
 }
+final case class SbtTestRunnerContext(testGroups: Seq[Tests.Group], processHandler: ProcessHandler, workingDir: File)
+    extends TestRunnerContext
