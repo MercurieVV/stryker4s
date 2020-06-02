@@ -15,10 +15,12 @@ import java.nio.file.Path
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
-abstract class MutantRunner[Context <: TestRunnerContext](sourceCollector: SourceCollector, reporter: Reporter)(implicit
+abstract class MutantRunner(sourceCollector: SourceCollector, reporter: Reporter)(implicit
     config: Config
 ) extends MutantRunResultMapper
     with Logging {
+
+  type Context
 
   def apply(mutatedFiles: Iterable[MutatedFile]): MetricsResult = {
     val context = prepareEnv(mutatedFiles)

@@ -28,9 +28,13 @@ class Stryker4sTest extends Stryker4sSuite with MockitoSuite with Inside with Lo
       extends MutantRunner(sourceCollector, reporter) {
     private[this] val stream = Iterator.from(0)
 
-    override def runMutant(mutant: Mutant, workingDir: File): Path => MutantRunResult =
+    override def runMutant(mutant: Mutant, context: Context): Path => MutantRunResult =
       path => Killed(Mutant(stream.next, q">", q"<", LesserThan), path)
-    override def runInitialTest(workingDir: File): Boolean = true
+
+    override def runInitialTest(context: Context): Boolean = true
+
+    override def initializeTestContext(workingDir: File): Context = ???
+
   }
 
   describe("run") {

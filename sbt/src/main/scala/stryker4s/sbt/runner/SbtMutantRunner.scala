@@ -1,6 +1,7 @@
 package stryker4s.sbt.runner
 
 import java.io.{PrintStream, File => JFile}
+import java.nio.file.{Path => JPath}
 
 import better.files.{File, _}
 import sbt.Keys._
@@ -16,7 +17,8 @@ import stryker4s.sbt.Stryker4sMain.autoImport.stryker
 import stryker4s.run.TestRunnerContext
 
 class SbtMutantRunner(state: State, sourceCollector: SourceCollector, reporter: Reporter)(implicit config: Config)
-    extends MutantRunner[SbtTestRunnerContext](sourceCollector, reporter) {
+    extends MutantRunner(sourceCollector, reporter) {
+  type Context = SbtTestRunnerContext
 
   lazy val filteredSystemProperties: Option[List[String]] = {
     // Matches strings that start with one of the options between brackets
@@ -53,7 +55,6 @@ class SbtMutantRunner(state: State, sourceCollector: SourceCollector, reporter: 
   val extracted = Project.extract(state)
 
   def initializeTestContext(workingDir: File): SbtTestRunnerContext = {
-    val newState = extracted.appendWithSession(settings, state)
     val settings: Seq[Def.Setting[_]] = Seq(
       scalacOptions --= blacklistedScalacOptions,
       fork in Test := true,
@@ -73,10 +74,11 @@ class SbtMutantRunner(state: State, sourceCollector: SourceCollector, reporter: 
       } else
         Seq()
     }
+    val newState = extracted.appendWithSession(settings, state)
 
     val testGroups = Project
       .runTask(testGrouping, newState)
-      .map({
+      .collect({
         case (_, Value(groups)) => groups
       })
       .getOrElse(throw new Exception("Could not resolve test context"))
@@ -86,7 +88,7 @@ class SbtMutantRunner(state: State, sourceCollector: SourceCollector, reporter: 
   }
 
   override def runInitialTest(context: SbtTestRunnerContext): Boolean =
-    context.processHandler.runTests(None) match {
+    context.processHandler.runTests(None, context.workingDir.path) match {
       case _: Survived => true
       case _           => false
     }
@@ -99,20 +101,21 @@ class SbtMutantRunner(state: State, sourceCollector: SourceCollector, reporter: 
   //   onFailed = false
   // )
 
-  override def runMutant(mutant: Mutant, context: SbtTestRunnerContext): MutantRunResult = {
-    context.processHandler.runTests(Some(mutant.id))
+  override def runMutant(mutant: Mutant, context: Context): JPath => MutantRunResult =
+    path => {
+      context.processHandler.runTests(Some(mutant.id), path)
 
-    // val mutationState = extracted.appendWithSession(settings :+ mutationSetting(mutant.id), newState)
-    // runTests(
-    //   mutationState,
-    //   { p: Path =>
-    //     error(s"An unexpected error occurred while running mutation ${mutant.id}")
-    //     Error(mutant, p)
-    //   },
-    //   Survived(mutant, _),
-    //   Killed(mutant, _)
-    // )
-  }
+      // val mutationState = extracted.appendWithSession(settings :+ mutationSetting(mutant.id), newState)
+      // runTests(
+      //   mutationState,
+      //   { p: Path =>
+      //     error(s"An unexpected error occurred while running mutation ${mutant.id}")
+      //     Error(mutant, p)
+      //   },
+      //   Survived(mutant, _),
+      //   Killed(mutant, _)
+      // )
+    }
 
   /** Runs tests with the giving state, calls the corresponding parameter on each result
     */

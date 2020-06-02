@@ -24,9 +24,9 @@ trait Stryker4sRunner {
     stryker4s.run()
   }
 
-  def resolveRunner[T <: TestRunnerContext](collector: SourceCollector, reporter: Reporter)(implicit
+  def resolveRunner(collector: SourceCollector, reporter: Reporter)(implicit
       config: Config
-  ): MutantRunner[T]
+  ): MutantRunner
 
   def mutationActivation: ActiveMutationContext
 }

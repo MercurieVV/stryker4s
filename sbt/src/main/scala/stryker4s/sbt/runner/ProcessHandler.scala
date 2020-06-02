@@ -1,9 +1,8 @@
 package stryker4s.sbt.runner
 
-import scala.sys.process.Process
 import scala.tools.nsc.io.Socket
 import stryker4s.model.MutantRunResult
-import java.net.InetAddress
+import java.nio.file.Path
 
 class ProcessHandler() {
   def newProcess(classpath: Seq[String]) = {
@@ -15,5 +14,5 @@ class ProcessHandler() {
 
   }
 
-  def runTests(mutation: Option[Int]): MutantRunResult = ???
+  def runTests(mutation: Option[Int], path: Path): MutantRunResult = ???
 }

@@ -20,8 +20,10 @@ class ProcessMutantRunner(
     sourceCollector: SourceCollector,
     reporter: Reporter
 )(implicit config: Config)
-    extends MutantRunner[CommandRunnerTestContext](sourceCollector, reporter) {
-  override def runMutant(mutant: Mutant, context: CommandRunnerTestContext): Path => MutantRunResult = {
+    extends MutantRunner(sourceCollector, reporter) {
+  type Context = CommandRunnerTestContext
+
+  override def runMutant(mutant: Mutant, context: Context): Path => MutantRunResult = {
     val id = mutant.id
     processRunner(command, context.workingDir, ("ACTIVE_MUTATION", id.toString)) match {
       case Success(0)                         => Survived(mutant, _)

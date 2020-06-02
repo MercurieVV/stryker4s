@@ -15,7 +15,7 @@ import stryker4s.run.Stryker4sRunner
   * @param state SBT project state (contains all the settings about the project)
   */
 class Stryker4sSbtRunner(state: State) extends Stryker4sRunner {
-  override def resolveRunner[T](collector: SourceCollector, reporter: Reporter)(implicit
+  override def resolveRunner(collector: SourceCollector, reporter: Reporter)(implicit
       config: Config
   ): SbtMutantRunner =
     new SbtMutantRunner(state, collector, reporter)
