@@ -42,6 +42,17 @@ object Settings {
     scriptedBufferLog := false
   )
 
+  lazy val sbtTestrunnerSettings: Seq[Setting[_]] = Seq(
+    Test / parallelExecution := true, // No logging tests, so parallel can be true
+    libraryDependencies ++= Seq(
+      Dependencies.testInterface
+    )
+  )
+
+  lazy val apiSettings: Seq[Setting[_]] = Seq(
+    Test / parallelExecution := true // No logging tests, so parallel can be true
+  )
+
   lazy val buildLevelSettings: Seq[Setting[_]] = inThisBuild(
     releaseCommands ++
       buildInfo
