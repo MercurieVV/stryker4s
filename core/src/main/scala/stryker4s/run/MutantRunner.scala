@@ -12,6 +12,8 @@ import stryker4s.report.mapper.MutantRunResultMapper
 import stryker4s.report.FinishedRunReport
 import stryker4s.extension.exception.InitialTestRunFailedException
 import java.nio.file.Path
+import scala.concurrent.Await
+import scala.concurrent.duration._
 
 abstract class MutantRunner[Context <: TestRunnerContext](sourceCollector: SourceCollector, reporter: Reporter)(implicit
     config: Config
@@ -28,7 +30,8 @@ abstract class MutantRunner[Context <: TestRunnerContext](sourceCollector: Sourc
     val report = toReport(runResults)
     val metrics = Metrics.calculateMetrics(report)
 
-    reporter.reportRunFinished(FinishedRunReport(report, metrics))
+    // Timeout of 15 seconds is a little longer to make sure http requests etc finish
+    Await.ready(reporter.reportRunFinished(FinishedRunReport(report, metrics)), 15.seconds)
     metrics
   }
 
@@ -70,9 +73,9 @@ abstract class MutantRunner[Context <: TestRunnerContext](sourceCollector: Sourc
       mutant <- mutatedFile.mutants
     } yield {
       val totalMutants = mutatedFiles.flatMap(_.mutants).size
-      reporter.reportMutationStart(mutant)
+      Await.ready(reporter.reportMutationStart(mutant), 5.seconds)
       val result = runMutant(mutant, context)(subPath)
-      reporter.reportMutationComplete(result, totalMutants)
+      Await.ready(reporter.reportMutationComplete(result, totalMutants), 5.seconds)
       result
     }
 

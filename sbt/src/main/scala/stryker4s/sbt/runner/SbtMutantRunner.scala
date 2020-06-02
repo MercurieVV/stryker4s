@@ -6,7 +6,7 @@ import better.files.{File, _}
 import sbt.Keys._
 import sbt._
 import sbt.internal.LogManager
-import stryker4s.config.Config
+import stryker4s.config.{Config, TestFilter}
 import stryker4s.extension.FileExtensions._
 import stryker4s.model._
 import stryker4s.mutants.findmutants.SourceCollector
@@ -40,9 +40,11 @@ class SbtMutantRunner(state: State, sourceCollector: SourceCollector, reporter: 
     // Scala 2.12
     "-Ywarn-unused:patvars",
     "-Ywarn-unused:locals",
+    "-Ywarn-unused:params",
     // Scala 2.13
     "-Wunused:patvars",
-    "-Wunused:locals"
+    "-Wunused:locals",
+    "-Wunused:params"
   )
 
   lazy val emptyLogManager =
@@ -64,7 +66,14 @@ class SbtMutantRunner(state: State, sourceCollector: SourceCollector, reporter: 
       filteredSystemProperties.map(properties => {
         debug(s"System properties added to the forked JVM: ${properties.mkString(",")}")
         javaOptions in Test ++= properties
-      })
+      }) ++ {
+      if (config.testFilter.nonEmpty) {
+        val testFilter = new TestFilter
+        Seq(Test / testOptions := Seq(Tests.Filter(testFilter.filter)))
+      } else
+        Seq()
+    }
+
     val testGroups = Project
       .runTask(testGrouping, newState)
       .map({
