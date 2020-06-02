@@ -14,26 +14,33 @@ import stryker4s.run.MutantRunner
 
 import scala.collection.JavaConverters._
 import stryker4s.config.TestFilter
+import stryker4s.run.TestRunnerContext
 
 class MavenMutantRunner(project: MavenProject, invoker: Invoker, sourceCollector: SourceCollector, reporter: Reporter)(
     implicit config: Config
 ) extends MutantRunner(sourceCollector, reporter) {
-  private val goals = List("test").asJava
+  type Context = MavenTestRunnerContext
 
-  private val properties = new Properties(project.getProperties)
-  setTestProperties()
-  invoker.setWorkingDirectory(tmpDir.toJava)
+  def initializeTestContext(workingDir: File): Context = {
+    val goals = List("test")
 
-  override def runInitialTest(workingDir: File): Boolean = {
-    val request = createRequest()
+    val properties = new Properties(project.getProperties)
+    setTestProperties(properties)
+    invoker.setWorkingDirectory(???)
+
+    MavenTestRunnerContext(properties, goals, workingDir)
+  }
+
+  override def runInitialTest(context: Context): Boolean = {
+    val request = createRequest(context)
 
     val result = invoker.execute(request)
 
     result.getExitCode == 0
   }
 
-  override def runMutant(mutant: Mutant, workingDir: File): Path => MutantRunResult = {
-    val request = createRequestWithMutation(mutant)
+  override def runMutant(mutant: Mutant, context: Context): Path => MutantRunResult = {
+    val request = createRequestWithMutation(mutant, context)
 
     val result = invoker.execute(request)
 
@@ -43,18 +50,18 @@ class MavenMutantRunner(project: MavenProject, invoker: Invoker, sourceCollector
     }
   }
 
-  private def createRequest(): InvocationRequest =
+  private def createRequest(context: Context): InvocationRequest =
     new DefaultInvocationRequest()
-      .setGoals(goals)
+      .setGoals(context.goals.asJava)
       .setOutputHandler(debug(_))
       .setBatchMode(true)
-      .setProperties(properties)
+      .setProperties(context.properties)
 
-  private def createRequestWithMutation(mutant: Mutant): InvocationRequest =
-    createRequest()
+  private def createRequestWithMutation(mutant: Mutant, context: Context): InvocationRequest =
+    createRequest(context)
       .addShellEnvironment("ACTIVE_MUTATION", String.valueOf(mutant.id))
 
-  private def setTestProperties(): Unit = {
+  private def setTestProperties(properties: Properties): Unit = {
     // Stop after first failure. Only works with surefire plugin, not scalatest
     properties.setProperty(
       "surefire.skipAfterFailureCount",
@@ -83,3 +90,6 @@ class MavenMutantRunner(project: MavenProject, invoker: Invoker, sourceCollector
 
   }
 }
+
+case class MavenTestRunnerContext(properties: Properties, goals: Seq[String], workingDir: File)
+    extends TestRunnerContext
